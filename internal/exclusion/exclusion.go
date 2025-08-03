@@ -115,3 +115,13 @@ func (m *Manager) Count() int {
 	})
 	return count
 }
+
+// GetAllExcluded returns all excluded numbers/JIDs as a slice of strings.
+func (m *Manager) GetAllExcluded() []string {
+	var excluded []string
+	m.excluded.Range(func(key, value interface{}) bool {
+		excluded = append(excluded, key.(string))
+		return true
+	})
+	return excluded
+}

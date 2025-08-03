@@ -217,28 +217,52 @@ func eventHandler(evt interface{}) {
 		if v.Message.GetConversation() != "" {
 			text := v.Message.GetConversation()
 			if text == "/exclude" {
-				cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
-					Conversation: &text,
-				})
+				// Display currently excluded users
+				excluded := exclusionManager.GetAllExcluded()
+				if len(excluded) == 0 {
+					response := "No users are currently excluded from transcription."
+					cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
+						Conversation: &response,
+					})
+				} else {
+					response := "Currently excluded users:\n"
+					for _, number := range excluded {
+						response += "- " + number + "\n"
+					}
+					cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
+						Conversation: &response,
+					})
+				}
 				return
 			} else if text == "/include" {
+				// Show error for /include without number
+				response := "Usage: /include <number> - Remove a number from the exclusion list."
 				cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
-					Conversation: &text,
+					Conversation: &response,
 				})
 				return
 			} else if len(text) > 9 && text[:9] == "/exclude " {
 				numberToExclude := text[9:]
 				exclusionManager.Add(numberToExclude)
+				response := fmt.Sprintf("%s added to exclusion list.", numberToExclude)
 				cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
-					Conversation: &[]string{fmt.Sprintf("Number %s added to exclusion list.", numberToExclude)}[0],
+					Conversation: &response,
 				})
 				return
 			} else if len(text) > 9 && text[:9] == "/include " {
 				numberToInclude := text[9:]
-				exclusionManager.Remove(numberToInclude)
-				cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
-					Conversation: &[]string{fmt.Sprintf("Number %s removed from exclusion list.", numberToInclude)}[0],
-				})
+				if exclusionManager.IsExcluded(numberToInclude) {
+					exclusionManager.Remove(numberToInclude)
+					response := fmt.Sprintf("%s removed from exclusion list.", numberToInclude)
+					cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
+						Conversation: &response,
+					})
+				} else {
+					response := fmt.Sprintf("%s not in exclusion list.", numberToInclude)
+					cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
+						Conversation: &response,
+					})
+				}
 				return
 			}
 		}
