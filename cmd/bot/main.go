@@ -14,6 +14,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types/events"
+//	"image/color" // Added for QR code terminal display
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -101,16 +102,22 @@ func main() {
 					fmt.Println("QR Code generated! Please scan this with your WhatsApp mobile app:")
 					fmt.Println()
 					
-					// Generate and display visual QR code
-					err := qrcode.WriteFile(evt.Code, qrcode.Medium, 256, "qrcode.png")
+					// Generate and display visual QR code in terminal
+					
+					err := printQRCodeToTerminal(evt.Code)
 					if err != nil {
-						log.Error("Failed to generate QR code image", zap.Error(err))
+						log.Error("Failed to display QR code in terminal", zap.Error(err))
 						fmt.Printf("Alternatively, you can manually scan this code: %s\n", evt.Code)
-					} else {
-						fmt.Println("QR code saved as qrcode.png")
-						fmt.Println("You can also scan this code from the file:")
-						fmt.Println("qrcode.png")
+						// Fallback to saving file if terminal display fails
+						err := qrcode.WriteFile(evt.Code, qrcode.Medium, 256, "qrcode.png")
+						if err != nil {
+							log.Error("Failed to generate QR code image fallback", zap.Error(err))
+						} else {
+							fmt.Println("QR code saved as qrcode.png (fallback)")
+						}
 					}
+					fmt.Println()
+					qrcode.WriteFile(evt.Code, qrcode.Medium, 256, "qrcode.png")
 					fmt.Println()
 				} else if evt.Event == "timeout" {
 					log.Info("QR code timeout, generating new one...")
@@ -139,6 +146,51 @@ func main() {
 
 	cli.Disconnect()
 	log.Info("Disconnected from WhatsApp.")
+}
+
+// printQRCodeToTerminal generates a QR code and prints it to the terminal as ASCII art.
+func printQRCodeToTerminal(code string) error {
+	qr, err := qrcode.New(code, qrcode.Medium)
+	if err != nil {
+		return fmt.Errorf("failed to create QR code: %w", err)
+	}
+
+	// Get the QR code image as a 2D boolean array
+	// True for black, false for white
+	qrMatrix := qr.Bitmap()
+
+	// Define characters for black and white blocks
+	blackBlock := "██" // Two block characters for better aspect ratio in terminals
+	whiteBlock := "  " // Two spaces for white blocks
+
+	// Print top border
+	fmt.Print("╔")
+	for i := 0; i < len(qrMatrix[0])*2; i++ {
+		fmt.Print("═")
+	}
+	fmt.Println("╗")
+
+	// Iterate over each row and column to print the QR code
+	for _, row := range qrMatrix {
+		fmt.Print("║")
+		for _, isBlack := range row {
+			if isBlack {
+				fmt.Print(blackBlock)
+			} else {
+				fmt.Print(whiteBlock)
+			}
+		}
+		fmt.Println("║")
+	}
+
+	// Print bottom border
+	fmt.Print("╚")
+	for i := 0; i < len(qrMatrix[0])*2; i++ {
+		fmt.Print("═")
+	}
+	fmt.Println("╝")
+
+	return nil
 }
 
 func eventHandler(evt interface{}) {

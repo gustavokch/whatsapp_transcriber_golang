@@ -4,6 +4,7 @@ alembic/versions/__pycache__/068b7234d6a7_initial_database_schema.cpython-312.py
 alembic/versions/068b7234d6a7_initial_database_schema.py
 alembic.ini
 data/session.db
+data/exclude.txt
 logs/conport.log
 logs/debug.log
 go.sum
