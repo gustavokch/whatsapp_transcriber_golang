@@ -1,0 +1,12 @@
+alembic/script.py.mako
+alembic/__pycache__/env.cpython-312.pyc
+alembic/versions/__pycache__/068b7234d6a7_initial_database_schema.cpython-312.pyc
+alembic/versions/068b7234d6a7_initial_database_schema.py
+alembic.ini
+data/session.db
+logs/conport.log
+logs/debug.log
+go.sum
+.env
+alembic/README
+alembic/env.py
