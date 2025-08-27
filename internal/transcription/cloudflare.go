@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"strings"
@@ -111,34 +110,14 @@ func (c *CloudflareAITranscriber) transcribeWithWhisperAPI(ctx context.Context, 
 	return result.Result.Text, nil
 }
 
-// transcribeWithDeepgramAPI uses the Deepgram API format (multipart form data)
+// transcribeWithDeepgramAPI uses the Deepgram API format (binary data)
 func (c *CloudflareAITranscriber) transcribeWithDeepgramAPI(ctx context.Context, apiURL string, audioBytes []byte) (string, error) {
-	// Create a multipart form body
-	var requestBody bytes.Buffer
-	writer := multipart.NewWriter(&requestBody)
-
-	// Add audio file part
-	part, err := writer.CreateFormFile("audio", "audio.ogg")
-	if err != nil {
-		return "", fmt.Errorf("failed to create form file: %w", err)
-	}
-	_, err = part.Write(audioBytes)
-	if err != nil {
-		return "", fmt.Errorf("failed to write audio data: %w", err)
-	}
-
-	// Close the writer to finalize the multipart form
-	err = writer.Close()
-	if err != nil {
-		return "", fmt.Errorf("failed to close multipart writer: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, &requestBody)
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(audioBytes))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 
 	client := &http.Client{Timeout: 60 * time.Second} // 60 seconds timeout for transcription
