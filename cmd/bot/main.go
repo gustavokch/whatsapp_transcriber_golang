@@ -13,7 +13,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/binary/proto"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types/events"
 
@@ -98,6 +98,7 @@ func main() {
 	groqAPIKey := os.Getenv("GROQ_API_KEY")
 	cloudflareAccountID := os.Getenv("CF_ACCOUNT_ID")
 	cloudflareAPIKey := os.Getenv("CF_API_KEY")
+	cloudflareModel := os.Getenv("CF_MODEL")
 	transcriptionLanguage = os.Getenv("TRANSCRIPTION_LANGUAGE")
 	if transcriptionLanguage == "" {
 		transcriptionLanguage = "pt" // Default to Portuguese
@@ -123,7 +124,11 @@ func main() {
 		if cloudflareAccountID == "" || cloudflareAPIKey == "" {
 			log.Fatal("Cloudflare credentials not found in environment variables")
 		}
-		transcriberService = transcription.NewCloudflareAITranscriber(cloudflareAccountID, cloudflareAPIKey, "@cf/openai/whisper-large-v3-turbo", log)
+		model := cloudflareModel
+		if model == "" {
+			model = "@cf/openai/whisper-large-v3-turbo" // Fallback model
+		}
+		transcriberService = transcription.NewCloudflareAITranscriber(cloudflareAccountID, cloudflareAPIKey, model, log)
 		backendSource := "command line flag"
 		if backendFlag == "" {
 			backendSource = "environment variable"
@@ -140,12 +145,12 @@ func main() {
 		log.Info("Generating QR code...")
 		go func() {
 			for evt := range qrChan {
-				if evt.Event == "code" {
+				switch evt.Event {
+				case "code":
 					fmt.Println("QR Code generated! Please scan this with your WhatsApp mobile app:")
 					fmt.Println()
 
 					// Generate and display visual QR code in terminal
-
 					err := printQRCodeToTerminal(evt.Code)
 					if err != nil {
 						log.Error("Failed to display QR code in terminal", zap.Error(err))
@@ -161,10 +166,10 @@ func main() {
 					fmt.Println()
 					qrcode.WriteFile(evt.Code, qrcode.Medium, 256, "qrcode.png")
 					fmt.Println()
-				} else if evt.Event == "timeout" {
+				case "timeout":
 					log.Info("QR code timeout, generating new one...")
 					fmt.Println("QR code timed out. A new one will be generated...")
-				} else {
+				default:
 					log.Info("Login event", zap.Any("event", evt.Event))
 				}
 			}
@@ -265,7 +270,7 @@ func eventHandler(evt interface{}) {
 				excluded := exclusionManager.GetAllExcluded()
 				if len(excluded) == 0 {
 					response := "No users are currently excluded from transcription."
-					cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
+					cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
 						Conversation: &response,
 					})
 				} else {
@@ -273,7 +278,7 @@ func eventHandler(evt interface{}) {
 					for _, number := range excluded {
 						response += "- " + number + "\n"
 					}
-					cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
+					cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
 						Conversation: &response,
 					})
 				}
@@ -282,7 +287,7 @@ func eventHandler(evt interface{}) {
 				log.Info("Executing /include command")
 				// Show error for /include without number
 				response := "Usage: /include <number> - Remove a number from the exclusion list."
-				cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
+				cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
 					Conversation: &response,
 				})
 				return
@@ -291,7 +296,7 @@ func eventHandler(evt interface{}) {
 				numberToExclude := strings.TrimSpace(text[8:])
 				exclusionManager.Add(numberToExclude)
 				response := fmt.Sprintf("%s added to exclusion list.", numberToExclude)
-				cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
+				cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
 					Conversation: &response,
 				})
 				return
@@ -301,12 +306,12 @@ func eventHandler(evt interface{}) {
 				if exclusionManager.IsExcluded(numberToInclude) {
 					exclusionManager.Remove(numberToInclude)
 					response := fmt.Sprintf("%s removed from exclusion list.", numberToInclude)
-					cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
+					cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
 						Conversation: &response,
 					})
 				} else {
 					response := fmt.Sprintf("%s not in exclusion list.", numberToInclude)
-					cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
+					cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
 						Conversation: &response,
 					})
 				}
@@ -314,20 +319,20 @@ func eventHandler(evt interface{}) {
 			}
 		}
 
-		senderJID := v.Info.Sender.User
-		// Check if sender is excluded
-		if exclusionManager.IsExcluded(senderJID) {
-			log.Debug("Ignoring message from excluded sender", zap.String("from", senderJID))
+		destinationJID := v.Info.Chat.User
+		// Check if destination is excluded
+		if exclusionManager.IsExcluded(destinationJID) {
+			log.Debug("Ignoring message to excluded destination", zap.String("to", destinationJID))
 			return
 		}
 
 		// Check for audio messages
 		if v.Message.GetAudioMessage() != nil {
-			log.Info("Received audio message", zap.String("from", v.Info.Sender.User))
+			log.Info("Received audio message", zap.String("from", v.Info.Sender.User), zap.String("to", v.Info.Chat.User))
 			job := transcription.NewJob(cli, v, log, transcriberService, transcriptionLanguage)
 			go job.HandleAudioMessage(context.Background()) // Run in a goroutine to avoid blocking event handler
 		} else {
-			log.Debug("Received non-audio message", zap.String("from", v.Info.Sender.User), zap.String("type", v.Info.Type))
+			log.Debug("Received non-audio message", zap.String("from", v.Info.Sender.User), zap.String("to", v.Info.Chat.User), zap.String("type", v.Info.Type))
 		}
 	}
 }
