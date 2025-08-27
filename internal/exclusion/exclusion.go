@@ -28,8 +28,6 @@ func NewManager(filePath string, logger *zap.Logger) *Manager {
 
 // loadExcludedNumbers loads numbers from the exclusion file into the map.
 func (m *Manager) loadExcludedNumbers() {
-	m.excluded = sync.Map{} // Clear existing map
-
 	// Ensure the directory exists
 	dir := filepath.Dir(m.filePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {

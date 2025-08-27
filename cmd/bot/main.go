@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/joho/godotenv"
@@ -48,7 +49,7 @@ func main() {
 	writer := zapcore.AddSync(logFile)
 
 	core := zapcore.NewTee(
-		zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), zapcore.InfoLevel),
+		zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), zapcore.DebugLevel),
 		zapcore.NewCore(fileEncoder, writer, zapcore.DebugLevel),
 	)
 	log = zap.New(core, zap.AddCaller())
@@ -206,17 +207,19 @@ func eventHandler(evt interface{}) {
 			return
 		}
 
-		senderJID := v.Info.Sender.String()
-		// Check if sender is excluded
-		if exclusionManager.IsExcluded(senderJID) {
-			log.Debug("Ignoring message from excluded sender", zap.String("from", senderJID))
-			return
+		var text string
+		if v.Message.GetConversation() != "" {
+			text = v.Message.GetConversation()
+		} else if v.Message.GetExtendedTextMessage() != nil {
+			text = v.Message.GetExtendedTextMessage().GetText()
 		}
 
+		log.Info("Parsed text", zap.String("text", text))
+
 		// Handle administrative commands
-		if v.Message.GetConversation() != "" {
-			text := v.Message.GetConversation()
+		if text != "" {
 			if text == "/exclude" {
+				log.Info("Executing /exclude command")
 				// Display currently excluded users
 				excluded := exclusionManager.GetAllExcluded()
 				if len(excluded) == 0 {
@@ -235,45 +238,55 @@ func eventHandler(evt interface{}) {
 				}
 				return
 			} else if text == "/include" {
+				log.Info("Executing /include command")
 				// Show error for /include without number
 				response := "Usage: /include <number> - Remove a number from the exclusion list."
 				cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
 					Conversation: &response,
-				})
+					})
 				return
-			} else if len(text) > 9 && text[:9] == "/exclude " {
-				numberToExclude := text[9:]
+						} else if strings.HasPrefix(text, "/exclude") {
+				log.Info("Executing /exclude with number command")
+				numberToExclude := strings.TrimSpace(text[8:])
 				exclusionManager.Add(numberToExclude)
 				response := fmt.Sprintf("%s added to exclusion list.", numberToExclude)
 				cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
 					Conversation: &response,
-				})
+					})
 				return
-			} else if len(text) > 9 && text[:9] == "/include " {
-				numberToInclude := text[9:]
+						} else if strings.HasPrefix(text, "/include") {
+				log.Info("Executing /include with number command")
+				numberToInclude := strings.TrimSpace(text[8:])
 				if exclusionManager.IsExcluded(numberToInclude) {
 					exclusionManager.Remove(numberToInclude)
 					response := fmt.Sprintf("%s removed from exclusion list.", numberToInclude)
 					cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
-						Conversation: &response,
-					})
+							Conversation: &response,
+						})
 				} else {
 					response := fmt.Sprintf("%s not in exclusion list.", numberToInclude)
 					cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
-						Conversation: &response,
-					})
+							Conversation: &response,
+						})
 				}
 				return
 			}
 		}
 
+		senderJID := v.Info.Sender.User
+		// Check if sender is excluded
+		if exclusionManager.IsExcluded(senderJID) {
+			log.Debug("Ignoring message from excluded sender", zap.String("from", senderJID))
+			return
+		}
+
 		// Check for audio messages
 		if v.Message.GetAudioMessage() != nil {
-			log.Info("Received audio message", zap.String("from", senderJID))
+			log.Info("Received audio message", zap.String("from", v.Info.Sender.User))
 			job := transcription.NewJob(cli, v, log, transcriberService, transcriptionLanguage)
 			go job.HandleAudioMessage(context.Background()) // Run in a goroutine to avoid blocking event handler
 		} else {
-			log.Debug("Received non-audio message", zap.String("from", senderJID), zap.String("type", v.Info.Type))
+			log.Debug("Received non-audio message", zap.String("from", v.Info.Sender.User), zap.String("type", v.Info.Type))
 		}
 	}
 }
