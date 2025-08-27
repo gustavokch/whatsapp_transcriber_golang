@@ -221,14 +221,27 @@ go test -cover ./...
 
 ## 📊 Logging
 
-The application provides comprehensive logging:
+The application provides flexible logging options:
 
-- **Console Output**: Structured logging with timestamps and log levels
-- **File Logging**: JSON-formatted logs saved to `logs/debug.log`
+- **Console Output**: Always available with structured logging and timestamps
+- **File Logging**: Optional JSON-formatted logs saved to `logs/debug.log` (use `--log` flag)
 - **Log Levels**: Debug, Info, Error, and Fatal levels
 
+### Logging Configuration
+
+#### Console Logging (Default)
+- Always enabled
+- Provides real-time feedback in the terminal
+- Includes all log levels (Debug, Info, Error, Fatal)
+
+#### File Logging (Optional)
+- Enable with `--log` command line flag
+- Creates `logs/debug.log` with JSON-formatted logs
+- Automatically creates the `logs/` directory if it doesn't exist
+- Includes full context with timestamps and log levels
+
 ### Log File Location
-- `logs/debug.log` - All application logs with full context
+- `logs/debug.log` - Application logs (only when `--log` flag is used)
 
 ## 🔒 Security Considerations
 
@@ -258,7 +271,12 @@ The application provides comprehensive logging:
 
 ### Debug Mode
 
-Enable detailed debugging by checking the `logs/debug.log` file for comprehensive error information.
+For detailed debugging:
+
+1. **Console Debugging**: Always available with real-time log output
+2. **File Debugging**: Enable with `--log` flag to save comprehensive logs to `logs/debug.log`
+
+Check the `logs/debug.log` file (when enabled) for detailed error information and debug traces.
 
 ## 📈 Performance Optimization
 
@@ -290,5 +308,6 @@ This project is licensed under the MIT License. See the LICENSE file for details
 
 For support and questions:
 - Check the troubleshooting section above
-- Review the logs in `logs/debug.log`
+- Review console logs for real-time information
+- Enable file logging with `--log` flag and check `logs/debug.log` for detailed debugging
 - Open an issue in the repository
