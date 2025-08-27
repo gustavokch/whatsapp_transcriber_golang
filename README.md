@@ -9,7 +9,7 @@ A powerful Go-based WhatsApp bot that automatically transcribes audio messages (
 - **Exclusion Management**: Built-in system to exclude specific phone numbers from processing
 - **Administrative Commands**: Simple commands to manage the exclusion list
 - **Persistent Storage**: SQLite database for session management and exclusion list persistence
-- **Comprehensive Logging**: Structured logging with both console and file output
+- **Flexible Logging**: Optional file logging with console output always available
 - **Language Support**: Configurable transcription language (defaults to Portuguese)
 
 ## 📋 Prerequisites
@@ -78,7 +78,7 @@ go build -o whatsapp-transcriber cmd/bot/main.go
 - **Features**: Fast, accurate, cost-effective transcription
 
 #### Cloudflare AI
-- **Model**: `@cf/openai/whisper`
+- **Model**: `@cf/openai/whisper-large-v3-turbo`
 - **API URL**: `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}`
 - **Features**: Serverless, scalable, integrated with Cloudflare ecosystem
 
@@ -99,8 +99,19 @@ The bot maintains an exclusion list stored in `data/exclude.txt`. You can manage
 ### 1. Start the Bot
 
 ```bash
+# Start with console logging only (default)
 ./whatsapp-transcriber
+
+# Start with both console and file logging
+./whatsapp-transcriber --log
 ```
+
+#### Command Line Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--log` | Enable logging to file | `false` |
+| `--backend` | Transcription backend to use (groq\|cloudflare) | - |
 
 ### 2. Initial Authentication
 

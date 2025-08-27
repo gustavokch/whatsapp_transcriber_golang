@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -9,13 +10,14 @@ import (
 	"syscall"
 
 	"github.com/joho/godotenv"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/skip2/go-qrcode"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/binary/proto"
-	_ "github.com/mattn/go-sqlite3"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types/events"
-//	"image/color" // Added for QR code terminal display
+
+	//	"image/color" // Added for QR code terminal display
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -30,6 +32,13 @@ var transcriberService transcription.Transcriber
 var transcriptionLanguage string
 
 func main() {
+	// Parse command line flags
+	var backendFlag string
+	var enableLogging bool
+	flag.StringVar(&backendFlag, "backend", "", "Transcription backend to use (groq|cloudflare)")
+	flag.BoolVar(&enableLogging, "log", false, "Enable logging to file")
+	flag.Parse()
+
 	// Load .env file
 	err := godotenv.Load()
 	if err != nil {
@@ -39,19 +48,31 @@ func main() {
 	// Setup logging
 	config := zap.NewProductionEncoderConfig()
 	config.EncodeTime = zapcore.ISO8601TimeEncoder
-	fileEncoder := zapcore.NewJSONEncoder(config)
 	consoleEncoder := zapcore.NewConsoleEncoder(config)
 
-	logFile, err := os.OpenFile("logs/debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		panic(fmt.Sprintf("Failed to open log file: %v", err))
-	}
-	writer := zapcore.AddSync(logFile)
+	var core zapcore.Core
 
-	core := zapcore.NewTee(
-		zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), zapcore.DebugLevel),
-		zapcore.NewCore(fileEncoder, writer, zapcore.DebugLevel),
-	)
+	if enableLogging {
+		// Create logs directory if it doesn't exist
+		if err := os.MkdirAll("logs", 0755); err != nil {
+			panic(fmt.Sprintf("Failed to create logs directory: %v", err))
+		}
+
+		fileEncoder := zapcore.NewJSONEncoder(config)
+		logFile, err := os.OpenFile("logs/debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to open log file: %v", err))
+		}
+		writer := zapcore.AddSync(logFile)
+
+		core = zapcore.NewTee(
+			zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), zapcore.DebugLevel),
+			zapcore.NewCore(fileEncoder, writer, zapcore.DebugLevel),
+		)
+	} else {
+		core = zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), zapcore.DebugLevel)
+	}
+
 	log = zap.New(core, zap.AddCaller())
 	defer log.Sync()
 
@@ -82,14 +103,34 @@ func main() {
 		transcriptionLanguage = "pt" // Default to Portuguese
 	}
 
-	if groqAPIKey != "" {
+	// Validate backend flag if provided
+	if backendFlag != "" && backendFlag != "groq" && backendFlag != "cloudflare" {
+		log.Fatal("Invalid backend specified. Valid options are: groq, cloudflare")
+	}
+
+	// Configure transcription service (command line flag takes precedence)
+	if backendFlag == "groq" || (backendFlag == "" && groqAPIKey != "") {
+		if groqAPIKey == "" {
+			log.Fatal("Groq API key not found in environment variables")
+		}
 		transcriberService = transcription.NewGroqTranscriber(groqAPIKey, "whisper-large-v3", log)
-		log.Info("Using Groq API for transcription.")
-	} else if cloudflareAccountID != "" && cloudflareAPIKey != "" {
-		transcriberService = transcription.NewCloudflareAITranscriber(cloudflareAccountID, cloudflareAPIKey, "@cf/openai/whisper", log)
-		log.Info("Using Cloudflare AI for transcription.")
+		backendSource := "command line flag"
+		if backendFlag == "" {
+			backendSource = "environment variable"
+		}
+		log.Info("Using Groq API for transcription.", zap.String("source", backendSource))
+	} else if backendFlag == "cloudflare" || (backendFlag == "" && cloudflareAccountID != "" && cloudflareAPIKey != "") {
+		if cloudflareAccountID == "" || cloudflareAPIKey == "" {
+			log.Fatal("Cloudflare credentials not found in environment variables")
+		}
+		transcriberService = transcription.NewCloudflareAITranscriber(cloudflareAccountID, cloudflareAPIKey, "@cf/openai/whisper-large-v3-turbo", log)
+		backendSource := "command line flag"
+		if backendFlag == "" {
+			backendSource = "environment variable"
+		}
+		log.Info("Using Cloudflare AI for transcription.", zap.String("source", backendSource))
 	} else {
-		log.Fatal("No transcription API keys found. Please set GROQ_API_KEY or CF_ACCOUNT_ID and CF_API_KEY in your .env file.")
+		log.Fatal("No transcription backend configured. Please set --backend flag or environment variables (GROQ_API_KEY or CF_ACCOUNT_ID+CF_API_KEY)")
 	}
 
 	// Load session or login
@@ -102,9 +143,9 @@ func main() {
 				if evt.Event == "code" {
 					fmt.Println("QR Code generated! Please scan this with your WhatsApp mobile app:")
 					fmt.Println()
-					
+
 					// Generate and display visual QR code in terminal
-					
+
 					err := printQRCodeToTerminal(evt.Code)
 					if err != nil {
 						log.Error("Failed to display QR code in terminal", zap.Error(err))
@@ -214,7 +255,7 @@ func eventHandler(evt interface{}) {
 			text = v.Message.GetExtendedTextMessage().GetText()
 		}
 
-		log.Info("Parsed text", zap.String("text", text))
+		log.Debug("Parsed text", zap.String("text", text))
 
 		// Handle administrative commands
 		if text != "" {
@@ -243,31 +284,31 @@ func eventHandler(evt interface{}) {
 				response := "Usage: /include <number> - Remove a number from the exclusion list."
 				cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
 					Conversation: &response,
-					})
+				})
 				return
-						} else if strings.HasPrefix(text, "/exclude") {
+			} else if strings.HasPrefix(text, "/exclude") {
 				log.Info("Executing /exclude with number command")
 				numberToExclude := strings.TrimSpace(text[8:])
 				exclusionManager.Add(numberToExclude)
 				response := fmt.Sprintf("%s added to exclusion list.", numberToExclude)
 				cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
 					Conversation: &response,
-					})
+				})
 				return
-						} else if strings.HasPrefix(text, "/include") {
+			} else if strings.HasPrefix(text, "/include") {
 				log.Info("Executing /include with number command")
 				numberToInclude := strings.TrimSpace(text[8:])
 				if exclusionManager.IsExcluded(numberToInclude) {
 					exclusionManager.Remove(numberToInclude)
 					response := fmt.Sprintf("%s removed from exclusion list.", numberToInclude)
 					cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
-							Conversation: &response,
-						})
+						Conversation: &response,
+					})
 				} else {
 					response := fmt.Sprintf("%s not in exclusion list.", numberToInclude)
 					cli.SendMessage(context.Background(), v.Info.Chat, &proto.Message{
-							Conversation: &response,
-						})
+						Conversation: &response,
+					})
 				}
 				return
 			}
