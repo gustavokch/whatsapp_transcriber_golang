@@ -132,13 +132,12 @@ func (c *CloudflareAITranscriber) transcribeWithDeepgramAPI(ctx context.Context,
 	// Determine content type from file extension
 	contentType := getContentType(audioFilePath)
 
-	// Encode audio to base64
-	base64Audio := base64.StdEncoding.EncodeToString(audioBytes)
+	// The audio body should be the raw audio bytes, not base64 encoded
 
 	// Construct request body matching Deepgram API requirements
 	requestBody, err := json.Marshal(map[string]interface{}{
 		"audio": map[string]interface{}{
-			"body":        base64Audio,
+			"body":        audioBytes,
 			"contentType": contentType,
 		},
 	})
