@@ -249,7 +249,7 @@ func eventHandler(evt interface{}) {
 	case *events.Message:
 		// Filter out group messages
 		if v.Info.IsGroup {
-			log.Debug("Ignoring group message", zap.String("from", v.Info.Chat.String()))
+			log.Debug("Ignoring group message", zap.String("from", v.Info.Sender.User))
 			return
 		}
 

@@ -34,27 +34,28 @@ type Transcriber interface {
 
 // Job handles the transcription of a single audio message.
 type Job struct {
-	Client    *whatsmeow.Client
-	Message   *events.Message
-	Logger    *zap.Logger
+	Client      *whatsmeow.Client
+	Message     *events.Message
+	Logger      *zap.Logger
 	Transcriber Transcriber
-	Language  string
+	Language    string
 }
 
 // NewJob creates a new TranscriptionJob.
 func NewJob(cli *whatsmeow.Client, msg *events.Message, logger *zap.Logger, transcriber Transcriber, lang string) *Job {
 	return &Job{
-		Client:    cli,
-		Message:   msg,
-		Logger:    logger,
+		Client:      cli,
+		Message:     msg,
+		Logger:      logger,
 		Transcriber: transcriber,
-		Language:  lang,
+		Language:    lang,
 	}
 }
 
 // HandleAudioMessage orchestrates the audio processing workflow.
 func (j *Job) HandleAudioMessage(ctx context.Context) {
-	j.Logger.Info("Starting audio message processing", zap.String("from", j.Message.Info.Sender.String()))
+	v := j.Message.Info
+	j.Logger.Info("Starting audio message processing", zap.String("from", v.Sender.User))
 
 	var downloadable whatsmeow.DownloadableMessage
 	if j.Message.Message.GetAudioMessage() != nil {
@@ -66,14 +67,14 @@ func (j *Job) HandleAudioMessage(ctx context.Context) {
 	} else if j.Message.Message.GetImageMessage() != nil {
 		downloadable = j.Message.Message.GetImageMessage()
 	} else {
-		j.Logger.Error("Message is not a downloadable type", zap.String("from", j.Message.Info.Sender.String()))
+		j.Logger.Error("Message is not a downloadable type", zap.String("from", v.Sender.User))
 		return
 	}
 
 	// Download media
 	data, err := j.Client.Download(ctx, downloadable)
 	if err != nil {
-		j.Logger.Error("Failed to download audio", zap.Error(err), zap.String("from", j.Message.Info.Sender.String()))
+		j.Logger.Error("Failed to download audio", zap.Error(err), zap.String("from", v.Sender.User))
 		j.replyWithError(ctx, "Failed to download audio.")
 		return
 	}
@@ -106,14 +107,14 @@ func (j *Job) HandleAudioMessage(ctx context.Context) {
 	// Transcribe audio
 	transcribedText, err := j.Transcriber.TranscribeAudio(ctx, tempFileName, j.Language)
 	if err != nil {
-		j.Logger.Error("Failed to transcribe audio", zap.Error(err), zap.String("from", j.Message.Info.Sender.String()))
+		j.Logger.Error("Failed to transcribe audio", zap.Error(err), zap.String("from", v.Sender.User))
 		j.replyWithError(ctx, "Failed to transcribe audio. Please try again later.")
 		return
 	}
 
 	// Reply with transcribed text
 	j.replyWithText(ctx, transcribedText)
-	j.Logger.Info("Successfully transcribed and replied", zap.String("from", j.Message.Info.Sender.String()))
+	j.Logger.Info("Successfully transcribed and replied", zap.String("from", v.Sender.User))
 }
 
 func (j *Job) replyWithText(ctx context.Context, text string) {
