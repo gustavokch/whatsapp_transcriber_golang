@@ -255,7 +255,7 @@ func eventHandler(evt interface{}) {
 			text = v.Message.GetExtendedTextMessage().GetText()
 		}
 
-		log.Debug("Parsed text", zap.String("text", text))
+		//log.Debug("Parsed text", zap.String("text", text))
 
 		// Handle administrative commands
 		if text != "" {
