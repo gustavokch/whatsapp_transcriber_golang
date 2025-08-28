@@ -99,7 +99,7 @@ func (c *CloudflareAITranscriber) transcribeWithWhisperAPI(ctx context.Context, 
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("Cloudflare AI returned non-200 status: %d, body: %s", resp.StatusCode, respBody)
+		return "", fmt.Errorf("cloudflare ai whisper api returned non-200 status: %d, body: %s", resp.StatusCode, string(respBody))
 	}
 
 	var result struct {
@@ -117,40 +117,29 @@ func (c *CloudflareAITranscriber) transcribeWithWhisperAPI(ctx context.Context, 
 	}
 
 	if !result.Success {
-		errMsg := "unknown Cloudflare AI error"
+		errMsg := "unknown cloudflare ai error"
 		if len(result.Errors) > 0 {
 			errMsg = result.Errors[0].Message
 		}
-		return "", fmt.Errorf("Cloudflare AI transcription failed: %s", errMsg)
+		return "", fmt.Errorf("cloudflare ai whisper api transcription failed: %s", errMsg)
 	}
 
 	return result.Result.Text, nil
 }
 
-// transcribeWithDeepgramAPI uses the Deepgram API format (JSON with audio object)
+// transcribeWithDeepgramAPI uses the Deepgram API format (binary audio data)
 func (c *CloudflareAITranscriber) transcribeWithDeepgramAPI(ctx context.Context, apiURL string, audioBytes []byte, audioFilePath string) (string, error) {
 	// Determine content type from file extension
 	contentType := getContentType(audioFilePath)
 
-	// The audio body should be the raw audio bytes, not base64 encoded
-
-	// Construct request body matching Deepgram API requirements
-	requestBody, err := json.Marshal(map[string]interface{}{
-		"audio": map[string]interface{}{
-			"body":        audioBytes,
-			"contentType": contentType,
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal request body: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(requestBody))
+	// For Deepgram models, we send the audio as binary data directly
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(audioBytes))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Content-Type", "application/json")
+	// Set headers for binary audio data
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 
 	client := &http.Client{Timeout: 60 * time.Second}
@@ -162,7 +151,7 @@ func (c *CloudflareAITranscriber) transcribeWithDeepgramAPI(ctx context.Context,
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("Cloudflare AI returned non-200 status: %d, body: %s", resp.StatusCode, respBody)
+		return "", fmt.Errorf("cloudflare ai deepgram api returned non-200 status: %d, body: %s", resp.StatusCode, string(respBody))
 	}
 
 	// Decode response matching Deepgram format
@@ -194,11 +183,11 @@ func (c *CloudflareAITranscriber) transcribeWithDeepgramAPI(ctx context.Context,
 	}
 
 	if !result.Success {
-		errMsg := "unknown Cloudflare AI error"
+		errMsg := "unknown cloudflare ai error"
 		if len(result.Errors) > 0 {
 			errMsg = result.Errors[0].Message
 		}
-		return "", fmt.Errorf("Cloudflare AI transcription failed: %s", errMsg)
+		return "", fmt.Errorf("cloudflare ai deepgram api transcription failed: %s", errMsg)
 	}
 
 	// Extract transcript from Deepgram response
