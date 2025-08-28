@@ -127,19 +127,35 @@ func (c *CloudflareAITranscriber) transcribeWithWhisperAPI(ctx context.Context, 
 	return result.Result.Text, nil
 }
 
-// transcribeWithDeepgramAPI uses the Deepgram API format (binary audio data)
+// transcribeWithDeepgramAPI uses the Deepgram API format (JSON with audio object)
 func (c *CloudflareAITranscriber) transcribeWithDeepgramAPI(ctx context.Context, apiURL string, audioBytes []byte, audioFilePath string) (string, error) {
 	// Determine content type from file extension
 	contentType := getContentType(audioFilePath)
 
-	// For Deepgram models, we send the audio as binary data directly
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(audioBytes))
+	// Convert audio bytes to array of uint8 values for JSON format
+	audioArray := make([]uint8, len(audioBytes))
+	copy(audioArray, audioBytes)
+
+	// Create request body matching Cloudflare AI API schema
+	requestBody := map[string]interface{}{
+		"audio": map[string]interface{}{
+			"contentType": contentType,
+			"body":        audioArray,
+		},
+	}
+
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set headers for binary audio data
-	req.Header.Set("Content-Type", contentType)
+	// Set headers for JSON data
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.APIKey)
 
 	client := &http.Client{Timeout: 60 * time.Second}

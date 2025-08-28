@@ -79,7 +79,7 @@ func (g *GroqTranscriber) TranscribeAudio(ctx context.Context, audioFilePath str
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("Groq API returned non-200 status: %d, body: %s", resp.StatusCode, respBody)
+		return "", fmt.Errorf("groq API returned non-200 status: %d, body: %s", resp.StatusCode, respBody)
 	}
 
 	var result struct {
