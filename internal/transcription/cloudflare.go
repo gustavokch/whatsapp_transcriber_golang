@@ -132,15 +132,14 @@ func (c *CloudflareAITranscriber) transcribeWithDeepgramAPI(ctx context.Context,
 	// Determine content type from file extension
 	contentType := getContentType(audioFilePath)
 
-	// Convert audio bytes to array of uint8 values for JSON format
-	audioArray := make([]uint8, len(audioBytes))
-	copy(audioArray, audioBytes)
+	// Encode audio bytes to base64 for JSON format
+	base64Audio := base64.StdEncoding.EncodeToString(audioBytes)
 
 	// Create request body matching Cloudflare AI API schema
 	requestBody := map[string]interface{}{
 		"audio": map[string]interface{}{
 			"contentType": contentType,
-			"body":        audioArray,
+			"body":        base64Audio,
 		},
 	}
 
