@@ -87,9 +87,11 @@ go build -o whatsapp-transcriber cmd/bot/main.go
 The bot maintains an exclusion list stored in `data/exclude.txt`. You can manage this list through:
 
 1. **Administrative Commands** (via WhatsApp):
+   - `/backend <service>` - Switch transcription backend (groq|cloudflare|deepgram)
+   - `/backend` - Show backend switching usage
    - `/exclude <number>` - Add a phone number to exclusion list
-   - `/include <number>` - Remove a phone number from exclusion list
    - `/exclude` - Show exclusion list status
+   - `/include <number>` - Remove a phone number from exclusion list
    - `/include` - Show inclusion list status
 
 2. **Manual File Editing**: Edit `data/exclude.txt` directly (one number per line)

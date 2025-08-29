@@ -70,7 +70,7 @@ func main() {
 			zapcore.NewCore(fileEncoder, writer, zapcore.DebugLevel),
 		)
 	} else {
-		core = zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), zapcore.DebugLevel)
+		core = zapcore.NewCore(consoleEncoder, zapcore.AddSync(os.Stdout), zapcore.InfoLevel)
 	}
 
 	log = zap.New(core, zap.AddCaller())
@@ -207,6 +207,38 @@ func main() {
 }
 
 // printQRCodeToTerminal generates a QR code and prints it to the terminal as ASCII art.
+func createTranscriber(backendName string) (transcription.Transcriber, error) {
+	groqAPIKey := os.Getenv("GROQ_API_KEY")
+	cloudflareAccountID := os.Getenv("CF_ACCOUNT_ID")
+	cloudflareAPIKey := os.Getenv("CF_API_KEY")
+	cloudflareModel := os.Getenv("CF_MODEL")
+	deepgramAPIKey := os.Getenv("DEEPGRAM_API_KEY")
+
+	switch backendName {
+	case "groq":
+		if groqAPIKey == "" {
+			return nil, fmt.Errorf("groq API key not found in environment variables")
+		}
+		return transcription.NewGroqTranscriber(groqAPIKey, "whisper-large-v3", log), nil
+	case "cloudflare":
+		if cloudflareAccountID == "" || cloudflareAPIKey == "" {
+			return nil, fmt.Errorf("cloudflare credentials not found in environment variables")
+		}
+		model := cloudflareModel
+		if model == "" {
+			model = "@cf/openai/whisper-large-v3-turbo"
+		}
+		return transcription.NewCloudflareAITranscriber(cloudflareAccountID, cloudflareAPIKey, model, log), nil
+	case "deepgram":
+		if deepgramAPIKey == "" {
+			return nil, fmt.Errorf("deepgram API key not found in environment variables")
+		}
+		return transcription.NewDeepgramAITranscriber(deepgramAPIKey, log), nil
+	default:
+		return nil, fmt.Errorf("invalid backend specified. Valid options are: groq, cloudflare, deepgram")
+	}
+}
+
 func printQRCodeToTerminal(code string) error {
 	qr, err := qrcode.New(code, qrcode.Medium)
 	if err != nil {
@@ -310,6 +342,30 @@ func eventHandler(evt interface{}) {
 				cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
 					Conversation: &response,
 				})
+				return
+			} else if text == "/backend" {
+				log.Info("Executing /backend command")
+				response := "Usage: /backend <service> - Available services: groq, cloudflare, deepgram"
+				cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
+					Conversation: &response,
+				})
+				return
+			} else if strings.HasPrefix(text, "/backend ") {
+				backendName := strings.TrimSpace(text[8:])
+				newTranscriber, err := createTranscriber(backendName)
+				if err != nil {
+					response := fmt.Sprintf("Error switching backend: %v", err)
+					cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
+						Conversation: &response,
+					})
+				} else {
+					transcriberService = newTranscriber
+					response := fmt.Sprintf("Switched transcription backend to %s", backendName)
+					cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
+						Conversation: &response,
+					})
+					log.Info("Transcription backend changed", zap.String("backend", backendName))
+				}
 				return
 			} else if strings.HasPrefix(text, "/include") {
 				log.Info("Executing /include with number command")

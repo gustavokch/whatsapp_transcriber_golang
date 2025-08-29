@@ -117,7 +117,7 @@ func (j *Job) HandleAudioMessage(ctx context.Context) {
 	data, err := j.Client.Download(ctx, downloadable)
 	if err != nil {
 		j.Logger.Error("Failed to download audio", zap.Error(err), zap.String("from", v.Sender.User))
-		j.replyWithError(ctx, "Failed to download audio.")
+		// j.replyWithError(ctx, "Failed to download audio.")
 		return
 	}
 
@@ -125,7 +125,7 @@ func (j *Job) HandleAudioMessage(ctx context.Context) {
 	tempDir := "messages" // Directory to save temporary audio files
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		j.Logger.Error("Failed to create temporary directory", zap.String("path", tempDir), zap.Error(err))
-		j.replyWithError(ctx, "Internal server error: could not create temp directory.")
+		// j.replyWithError(ctx, "Internal server error: could not create temp directory.")
 		return
 	}
 
@@ -133,7 +133,7 @@ func (j *Job) HandleAudioMessage(ctx context.Context) {
 	err = os.WriteFile(tempFileName, data, 0644)
 	if err != nil {
 		j.Logger.Error("Failed to save audio to temporary file", zap.Error(err), zap.String("path", tempFileName))
-		j.replyWithError(ctx, "Internal server error: could not save audio.")
+		// j.replyWithError(ctx, "Internal server error: could not save audio.")
 		return
 	}
 	defer func() {
@@ -157,7 +157,7 @@ func (j *Job) HandleAudioMessage(ctx context.Context) {
 			zap.Error(err),
 			zap.String("from", v.Sender.User),
 			zap.String("temp_file", tempFileName))
-		j.replyWithError(ctx, "Failed to transcribe audio. Please try again later.")
+		// j.replyWithError(ctx, "Failed to transcribe audio. Please try again later.")
 		return
 	}
 
@@ -166,20 +166,24 @@ func (j *Job) HandleAudioMessage(ctx context.Context) {
 		zap.String("transcribed_text", transcribedText[:min(100, len(transcribedText))]))
 
 	// Reply with transcribed text
-	j.replyWithText(ctx, transcribedText)
-	j.Logger.Info("Successfully transcribed and replied", zap.String("from", v.Sender.User))
+	if len(transcribedText) > 5 {
+		j.replyWithText(ctx, transcribedText)
+		j.Logger.Info("Successfully transcribed and replied", zap.String("from", v.Sender.User))
+	}
 }
 
 func (j *Job) replyWithText(ctx context.Context, text string) {
 	// Format the message with prefix in bold and transcription in italics
 	// Trim whitespace to ensure proper WhatsApp formatting
 	trimmedText := strings.TrimSpace(text)
-	formattedText := fmt.Sprintf("*Transcrição automática:* _%s_", trimmedText)
-	_, err := j.Client.SendMessage(ctx, j.Message.Info.Chat, &proto.Message{
-		Conversation: &formattedText,
-	})
-	if err != nil {
-		j.Logger.Error("Failed to send reply message", zap.Error(err), zap.String("to", j.Message.Info.Chat.String()))
+	if len(trimmedText) > 5 {
+		formattedText := fmt.Sprintf("*Transcrição automática:* _%s_", trimmedText)
+		_, err := j.Client.SendMessage(ctx, j.Message.Info.Chat, &proto.Message{
+			Conversation: &formattedText,
+		})
+		if err != nil {
+			j.Logger.Error("Failed to send reply message", zap.Error(err), zap.String("to", j.Message.Info.Chat.String()))
+		}
 	}
 }
 
