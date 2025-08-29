@@ -13,3 +13,6 @@ alembic/README
 alembic/env.py
 whatsapp-transcriber
 bot
+moore2.mp3
+new1.opus
+cloudflare_transcription.py

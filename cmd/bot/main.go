@@ -35,7 +35,7 @@ func main() {
 	// Parse command line flags
 	var backendFlag string
 	var enableLogging bool
-	flag.StringVar(&backendFlag, "backend", "", "Transcription backend to use (groq|cloudflare)")
+	flag.StringVar(&backendFlag, "backend", "", "Transcription backend to use (groq|cloudflare|deepgram)")
 	flag.BoolVar(&enableLogging, "log", false, "Enable logging to file")
 	flag.Parse()
 
@@ -99,14 +99,15 @@ func main() {
 	cloudflareAccountID := os.Getenv("CF_ACCOUNT_ID")
 	cloudflareAPIKey := os.Getenv("CF_API_KEY")
 	cloudflareModel := os.Getenv("CF_MODEL")
+	deepgramAPIKey := os.Getenv("DEEPGRAM_API_KEY")
 	transcriptionLanguage = os.Getenv("TRANSCRIPTION_LANGUAGE")
 	if transcriptionLanguage == "" {
 		transcriptionLanguage = "pt" // Default to Portuguese
 	}
 
 	// Validate backend flag if provided
-	if backendFlag != "" && backendFlag != "groq" && backendFlag != "cloudflare" {
-		log.Fatal("Invalid backend specified. Valid options are: groq, cloudflare")
+	if backendFlag != "" && backendFlag != "groq" && backendFlag != "cloudflare" && backendFlag != "deepgram" {
+		log.Fatal("Invalid backend specified. Valid options are: groq, cloudflare, deepgram")
 	}
 
 	// Configure transcription service (command line flag takes precedence)
@@ -134,8 +135,18 @@ func main() {
 			backendSource = "environment variable"
 		}
 		log.Info("Using Cloudflare AI for transcription.", zap.String("source", backendSource))
+	} else if backendFlag == "deepgram" || (backendFlag == "" && deepgramAPIKey != "") {
+		if deepgramAPIKey == "" {
+			log.Fatal("Deepgram API key not found in environment variables")
+		}
+		transcriberService = transcription.NewDeepgramAITranscriber(deepgramAPIKey, log)
+		backendSource := "command line flag"
+		if backendFlag == "" {
+			backendSource = "environment variable"
+		}
+		log.Info("Using Deepgram AI for transcription.", zap.String("source", backendSource))
 	} else {
-		log.Fatal("No transcription backend configured. Please set --backend flag or environment variables (GROQ_API_KEY or CF_ACCOUNT_ID+CF_API_KEY)")
+		log.Fatal("No transcription backend configured. Please set --backend flag or environment variables (GROQ_API_KEY, CF_ACCOUNT_ID+CF_API_KEY, or DEEPGRAM_API_KEY)")
 	}
 
 	// Load session or login

@@ -52,10 +52,52 @@ func NewJob(cli *whatsmeow.Client, msg *events.Message, logger *zap.Logger, tran
 	}
 }
 
+// getContentType returns MIME type based on file extension
+func getContentType(filename string) string {
+	switch {
+	case strings.HasSuffix(filename, ".wav"):
+		return "audio/wav"
+	case strings.HasSuffix(filename, ".mp3"):
+		return "audio/mpeg"
+	case strings.HasSuffix(filename, ".ogg"):
+		return "audio/ogg"
+	case strings.HasSuffix(filename, ".opus"):
+		return "audio/opus"
+	case strings.HasSuffix(filename, ".flac"):
+		return "audio/flac"
+	default:
+		return "application/octet-stream"
+	}
+}
+
 // HandleAudioMessage orchestrates the audio processing workflow.
 func (j *Job) HandleAudioMessage(ctx context.Context) {
+	// Add diagnostic logging to identify nil pointer sources
+	if j == nil {
+		panic("Job is nil")
+	}
+	if j.Message == nil {
+		panic("Message is nil")
+	}
+	if j.Client == nil {
+		panic("Client is nil")
+	}
+	if j.Transcriber == nil {
+		panic("Transcriber is nil")
+	}
+	if j.Logger == nil {
+		panic("Logger is nil")
+	}
+
+	// Check context
+	if ctx == nil {
+		panic("Context is nil")
+	}
+
 	v := j.Message.Info
-	j.Logger.Info("Starting audio message processing", zap.String("from", v.Sender.User))
+	j.Logger.Info("Starting audio message processing",
+		zap.String("from", v.Sender.User),
+		zap.String("job_id", fmt.Sprintf("%p", j)))
 
 	var downloadable whatsmeow.DownloadableMessage
 	if j.Message.Message.GetAudioMessage() != nil {
@@ -105,12 +147,23 @@ func (j *Job) HandleAudioMessage(ctx context.Context) {
 	j.Logger.Info("Audio saved to temporary file", zap.String("path", tempFileName))
 
 	// Transcribe audio
+	j.Logger.Debug("About to call TranscribeAudio",
+		zap.String("temp_file", tempFileName),
+		zap.String("language", j.Language))
+
 	transcribedText, err := j.Transcriber.TranscribeAudio(ctx, tempFileName, j.Language)
 	if err != nil {
-		j.Logger.Error("Failed to transcribe audio", zap.Error(err), zap.String("from", v.Sender.User))
+		j.Logger.Error("Failed to transcribe audio",
+			zap.Error(err),
+			zap.String("from", v.Sender.User),
+			zap.String("temp_file", tempFileName))
 		j.replyWithError(ctx, "Failed to transcribe audio. Please try again later.")
 		return
 	}
+
+	j.Logger.Debug("Transcription successful",
+		zap.String("from", v.Sender.User),
+		zap.String("transcribed_text", transcribedText[:min(100, len(transcribedText))]))
 
 	// Reply with transcribed text
 	j.replyWithText(ctx, transcribedText)
