@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"strings"
@@ -114,70 +115,76 @@ func (c *CloudflareAITranscriber) transcribeWithWhisperAPI(ctx context.Context, 
 
 	// Try parsing into full result structure first
 	var fullResult struct {
-		Text              string `json:"text"`
-		WordCount         int    `json:"word_count"`
-		TranscriptionInfo struct {
-			Language            string  `json:"language"`
-			LanguageProbability float64 `json:"language_probability"`
-			Duration            float64 `json:"duration"`
-			DurationAfterVAD    float64 `json:"duration_after_vad"`
-		} `json:"transcription_info"`
-		Segments []struct {
-			Start            float64 `json:"start"`
-			End              float64 `json:"end"`
-			Text             string  `json:"text"`
-			Temperature      float64 `json:"temperature"`
-			AvgLogprob       float64 `json:"avg_logprob"`
-			CompressionRatio float64 `json:"compression_ratio"`
-			NoSpeechProb     float64 `json:"no_speech_prob"`
-			Words            []struct {
-				Word  string  `json:"word"`
-				Start float64 `json:"start"`
-				End   float64 `json:"end"`
-			} `json:"words"`
-		} `json:"segments"`
-		VTT string `json:"vtt"`
+		Result struct {
+			Text              string `json:"text"`
+			WordCount         int    `json:"word_count"`
+			TranscriptionInfo struct {
+				Language            string  `json:"language"`
+				LanguageProbability float64 `json:"language_probability"`
+				Duration            float64 `json:"duration"`
+				DurationAfterVAD    float64 `json:"duration_after_vad"`
+			} `json:"transcription_info"`
+			Segments []struct {
+				Start            float64 `json:"start"`
+				End              float64 `json:"end"`
+				Text             string  `json:"text"`
+				Temperature      float64 `json:"temperature"`
+				AvgLogprob       float64 `json:"avg_logprob"`
+				CompressionRatio float64 `json:"compression_ratio"`
+				NoSpeechProb     float64 `json:"no_speech_prob"`
+				Words            []struct {
+					Word  string  `json:"word"`
+					Start float64 `json:"start"`
+					End   float64 `json:"end"`
+				} `json:"words"`
+			} `json:"segments"`
+			VTT string `json:"vtt"`
+		} `json:"result"`
 	}
 
-	if err := json.Unmarshal(bodyBytes, &fullResult); err == nil && fullResult.Text != "" {
+	if err := json.Unmarshal(bodyBytes, &fullResult); err == nil && fullResult.Result.Text != "" {
 		// Prepare segment preview
 		segmentPreview := ""
-		if len(fullResult.Segments) > 0 {
-			segmentText := fullResult.Segments[0].Text
+		if len(fullResult.Result.Segments) > 0 {
+			segmentText := fullResult.Result.Segments[0].Text
 			if len(segmentText) > 50 {
 				segmentText = segmentText[:50] + "..."
 			}
-			segmentPreview = fmt.Sprintf("%d segments, first: %q", len(fullResult.Segments), segmentText)
+			segmentPreview = fmt.Sprintf("%d segments, first: %q", len(fullResult.Result.Segments), segmentText)
 		}
 
 		// Prepare VTT preview
 		vttPreview := ""
-		if fullResult.VTT != "" {
-			vttPreview = fullResult.VTT
+		if fullResult.Result.VTT != "" {
+			vttPreview = fullResult.Result.VTT
 			if len(vttPreview) > 50 {
 				vttPreview = vttPreview[:50] + "..."
 			}
 		}
 
 		c.Logger.Debug("Whisper API response details",
-			zap.String("transcription", fullResult.Text),
-			zap.Int("word_count", fullResult.WordCount),
-			zap.String("detected_language", fullResult.TranscriptionInfo.Language),
-			zap.Float64("language_probability", fullResult.TranscriptionInfo.LanguageProbability),
-			zap.Float64("duration", fullResult.TranscriptionInfo.Duration),
-			zap.Float64("duration_after_vad", fullResult.TranscriptionInfo.DurationAfterVAD),
+			zap.String("transcription", fullResult.Result.Text),
+			zap.Int("word_count", fullResult.Result.WordCount),
+			zap.String("detected_language", fullResult.Result.TranscriptionInfo.Language),
+			zap.Float64("language_probability", fullResult.Result.TranscriptionInfo.LanguageProbability),
+			zap.Float64("duration", fullResult.Result.TranscriptionInfo.Duration),
+			zap.Float64("duration_after_vad", fullResult.Result.TranscriptionInfo.DurationAfterVAD),
 			zap.String("segments_preview", segmentPreview),
 			zap.String("vtt_preview", vttPreview))
 
-		return fullResult.Text, nil
+		return fullResult.Result.Text, nil
 	}
 
 	// Fallback to simple text extraction
 	var simpleResult struct {
-		Text string `json:"text"`
+		Result struct {
+			Text string `json:"text"`
+		} `json:"result"`
 	}
-	if err := json.Unmarshal(bodyBytes, &simpleResult); err == nil && simpleResult.Text != "" {
-		return simpleResult.Text, nil
+	if err := json.Unmarshal(bodyBytes, &simpleResult); err == nil && simpleResult.Result.Text != "" {
+		c.Logger.Debug("Whisper API response details (simple result)",
+			zap.String("transcription", simpleResult.Result.Text))
+		return simpleResult.Result.Text, nil
 	}
 
 	// Final fallback to raw text
@@ -284,78 +291,127 @@ func (c *CloudflareAITranscriber) transcribeWithDeepgramAPI(ctx context.Context,
 
 	// Define response structure matching Deepgram output schema
 	var apiResponse struct {
-		Results struct {
-			Channels []struct {
-				Alternatives []struct {
-					Transcript string `json:"transcript"`
-					Words      []struct {
-						Word       string  `json:"word"`
-						Start      float64 `json:"start"`
-						End        float64 `json:"end"`
+		Result struct {
+			Results struct {
+				Channels []struct {
+					Alternatives []struct {
+						Transcript string `json:"transcript"`
+						Words      []struct {
+							Word       string  `json:"word"`
+							Start      float64 `json:"start"`
+							End        float64 `json:"end"`
+							Confidence float64 `json:"confidence"`
+						} `json:"words"`
 						Confidence float64 `json:"confidence"`
-					} `json:"words"`
-					Confidence float64 `json:"confidence"`
-				} `json:"alternatives"`
-			} `json:"channels"`
-			Summary struct {
-				Result string `json:"result"`
-				Short  string `json:"short"`
-			} `json:"summary"`
-			Sentiments struct {
-				Segments []struct {
-					Text           string  `json:"text"`
-					StartWord      int     `json:"start_word"`
-					EndWord        int     `json:"end_word"`
-					Sentiment      string  `json:"sentiment"`
-					SentimentScore float64 `json:"sentiment_score"`
-				} `json:"segments"`
-				Average struct {
-					Sentiment      string  `json:"sentiment"`
-					SentimentScore float64 `json:"sentiment_score"`
-				} `json:"average"`
-			} `json:"sentiments"`
-		} `json:"results"`
+					} `json:"alternatives"`
+				} `json:"channels"`
+				Summary struct {
+					Result string `json:"result"`
+					Short  string `json:"short"`
+				} `json:"summary"`
+				Sentiments struct {
+					Segments []struct {
+						Text           string  `json:"text"`
+						StartWord      int     `json:"start_word"`
+						EndWord        int     `json:"end_word"`
+						Sentiment      string  `json:"sentiment"`
+						SentimentScore float64 `json:"sentiment_score"`
+					} `json:"segments"`
+					Average struct {
+						Sentiment      string  `json:"sentiment"`
+						SentimentScore float64 `json:"sentiment_score"`
+					} `json:"average"`
+				} `json:"sentiments"`
+			} `json:"results"`
+		} `json:"result"`
 	}
 
-	if err := json.Unmarshal(bodyBytes, &apiResponse); err != nil {
-		c.Logger.Warn("Failed to parse Deepgram JSON response", zap.Error(err))
-		// Fallback to simple text extraction
-		if transcript := string(bodyBytes); transcript != "" {
+	// Try parsing into full result structure first
+	if err := json.Unmarshal(bodyBytes, &apiResponse); err == nil && apiResponse.Result.Results.Channels != nil {
+		// Extract transcript from structured response
+		var transcript string
+		if len(apiResponse.Result.Results.Channels) > 0 &&
+			len(apiResponse.Result.Results.Channels[0].Alternatives) > 0 {
+			transcript = apiResponse.Result.Results.Channels[0].Alternatives[0].Transcript
+		}
+
+		if transcript == "" {
+			// Try summary as fallback
+			if apiResponse.Result.Results.Summary.Result != "" {
+				transcript = apiResponse.Result.Results.Summary.Result
+			} else if apiResponse.Result.Results.Summary.Short != "" {
+				transcript = apiResponse.Result.Results.Summary.Short
+			}
+		}
+
+		if transcript == "" {
+			c.Logger.Error("Empty transcript in Deepgram response",
+				zap.Any("full_response", apiResponse))
+			return "", fmt.Errorf("empty transcript received from Deepgram API")
+		}
+
+		// Log response details
+		c.Logger.Debug("Deepgram API response details",
+			zap.String("transcript", transcript[:int(math.Min(50, float64(len(transcript))))]),
+			zap.Int("channels", len(apiResponse.Result.Results.Channels)),
+			zap.Int("alternatives", len(apiResponse.Result.Results.Channels[0].Alternatives)),
+			zap.Int("words", len(apiResponse.Result.Results.Channels[0].Alternatives[0].Words)),
+			zap.String("summary", apiResponse.Result.Results.Summary.Short),
+			zap.Int("sentiment_segments", len(apiResponse.Result.Results.Sentiments.Segments)))
+
+		return transcript, nil
+	}
+
+	// Fallback to simple result extraction
+	var simpleResult struct {
+		Result struct {
+			Results struct {
+				Channels []struct {
+					Alternatives []struct {
+						Transcript string `json:"transcript"`
+					} `json:"alternatives"`
+				} `json:"channels"`
+				Summary struct {
+					Result string `json:"result"`
+					Short  string `json:"short"`
+				} `json:"summary"`
+			} `json:"results"`
+		} `json:"result"`
+	}
+
+	if err := json.Unmarshal(bodyBytes, &simpleResult); err == nil {
+		// Extract transcript from simple result structure
+		var transcript string
+		if len(simpleResult.Result.Results.Channels) > 0 &&
+			len(simpleResult.Result.Results.Channels[0].Alternatives) > 0 {
+			transcript = simpleResult.Result.Results.Channels[0].Alternatives[0].Transcript
+		}
+
+		if transcript == "" {
+			// Try summary as fallback
+			if simpleResult.Result.Results.Summary.Result != "" {
+				transcript = simpleResult.Result.Results.Summary.Result
+			} else if simpleResult.Result.Results.Summary.Short != "" {
+				transcript = simpleResult.Result.Results.Summary.Short
+			}
+		}
+
+		if transcript != "" {
+			// Log response details
+			c.Logger.Debug("Deepgram API response details (simple result)",
+				zap.String("transcript", transcript[:int(math.Min(50, float64(len(transcript))))]),
+				zap.Int("channels", len(simpleResult.Result.Results.Channels)),
+				zap.Int("alternatives", len(simpleResult.Result.Results.Channels[0].Alternatives)))
+
 			return transcript, nil
 		}
-		return "", fmt.Errorf("failed to parse Deepgram response: %w", err)
 	}
 
-	// Extract transcript from structured response
-	var transcript string
-	if len(apiResponse.Results.Channels) > 0 &&
-		len(apiResponse.Results.Channels[0].Alternatives) > 0 {
-		transcript = apiResponse.Results.Channels[0].Alternatives[0].Transcript
+	// Final fallback to raw text
+	c.Logger.Warn("Failed to parse Deepgram JSON response", zap.Error(err))
+	if transcript := string(bodyBytes); transcript != "" {
+		return transcript, nil
 	}
 
-	if transcript == "" {
-		// Try summary as fallback
-		if apiResponse.Results.Summary.Result != "" {
-			transcript = apiResponse.Results.Summary.Result
-		} else if apiResponse.Results.Summary.Short != "" {
-			transcript = apiResponse.Results.Summary.Short
-		}
-	}
-
-	if transcript == "" {
-		c.Logger.Error("Empty transcript in Deepgram response",
-			zap.Any("full_response", apiResponse))
-		return "", fmt.Errorf("empty transcript received from Deepgram API")
-	}
-
-	// Log response details
-	c.Logger.Debug("Deepgram API response details",
-		zap.String("transcript", transcript[:min(50, len(transcript))]),
-		zap.Int("channels", len(apiResponse.Results.Channels)),
-		zap.Int("alternatives", len(apiResponse.Results.Channels[0].Alternatives)),
-		zap.Int("words", len(apiResponse.Results.Channels[0].Alternatives[0].Words)),
-		zap.String("summary", apiResponse.Results.Summary.Short),
-		zap.Int("sentiment_segments", len(apiResponse.Results.Sentiments.Segments)))
-
-	return transcript, nil
+	return "", fmt.Errorf("failed to parse Deepgram response: %w", err)
 }

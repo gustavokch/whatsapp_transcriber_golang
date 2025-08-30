@@ -78,6 +78,11 @@ func main() {
 
 	log.Info("Starting WhatsApp Audio Transcription Bot...")
 
+	// Ensure data directory exists
+	if err := os.MkdirAll("data", 0755); err != nil {
+		log.Fatal("Failed to create data directory", zap.Error(err))
+	}
+
 	// Initialize Whatsmeow client
 	container, err := sqlstore.New(context.Background(), "sqlite3", "file:data/session.db?_foreign_keys=on", nil)
 	if err != nil {
