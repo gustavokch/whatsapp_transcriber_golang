@@ -35,10 +35,11 @@ func (d *DeepgramAITranscriber) TranscribeAudio(ctx context.Context, audioFilePa
 	contentType := getContentType(audioFilePath)
 	d.Logger.Debug("Detected content type", zap.String("content_type", contentType))
 
-	apiURL := "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&detect_language=true"
+	apiURL := "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true"
 	if language != "" {
 		apiURL += "&language=" + language
 	}
+	d.Logger.Debug("Using language: ", zap.String("lang", language))
 	d.Logger.Debug("Using Deepgram API URL", zap.String("url", apiURL))
 
 	audioFile, err := os.Open(audioFilePath)
