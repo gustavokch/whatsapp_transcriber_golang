@@ -10,7 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/binary/proto"
+
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types/events"
 	"go.uber.org/zap"
 )
@@ -178,7 +179,7 @@ func (j *Job) replyWithText(ctx context.Context, text string) {
 	trimmedText := strings.TrimSpace(text)
 	if len(trimmedText) > 5 {
 		formattedText := fmt.Sprintf("*Transcrição automática:* _%s_", trimmedText)
-		_, err := j.Client.SendMessage(ctx, j.Message.Info.Chat, &proto.Message{
+		_, err := j.Client.SendMessage(ctx, j.Message.Info.Chat, &waE2E.Message{
 			Conversation: &formattedText,
 		})
 		if err != nil {
@@ -188,7 +189,7 @@ func (j *Job) replyWithText(ctx context.Context, text string) {
 }
 
 func (j *Job) replyWithError(ctx context.Context, errorMessage string) {
-	_, err := j.Client.SendMessage(ctx, j.Message.Info.Chat, &proto.Message{
+	_, err := j.Client.SendMessage(ctx, j.Message.Info.Chat, &waE2E.Message{
 		Conversation: &errorMessage,
 	})
 	if err != nil {
