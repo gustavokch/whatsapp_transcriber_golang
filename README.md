@@ -4,7 +4,7 @@ A powerful Go-based WhatsApp bot that automatically transcribes audio messages (
 
 ## 🚀 Features
 
-- **Multi-Provider Transcription**: Supports both Groq and Cloudflare AI transcription services
+- **Multi-Provider Transcription**: Supports Groq, Cloudflare AI, and Deepgram transcription services
 - **Real-time Processing**: Automatically processes incoming audio messages and returns transcriptions
 - **Exclusion Management**: Built-in system to exclude specific phone numbers from processing
 - **Administrative Commands**: Simple commands to manage the exclusion list
@@ -14,11 +14,12 @@ A powerful Go-based WhatsApp bot that automatically transcribes audio messages (
 
 ## 📋 Prerequisites
 
-- Go 1.23.0 or higher
+- Go 1.24.6 or higher
 - WhatsApp account (for QR code authentication)
 - API keys from one of the supported transcription services:
   - Groq API key (recommended)
-  - OR Cloudflare Account ID and API key
+  - Cloudflare Account ID and API key
+  - Deepgram API key
 
 ## 🔧 Installation
 
@@ -49,6 +50,9 @@ GROQ_API_KEY=your_groq_api_key_here
 CF_ACCOUNT_ID=your_cloudflare_account_id
 CF_API_KEY=your_cloudflare_api_key
 
+# Option 3: Deepgram AI
+DEEPGRAM_API_KEY=your_deepgram_api_key
+
 # Optional Configuration
 TRANSCRIPTION_LANGUAGE=pt  # Language code (defaults to 'pt' for Portuguese)
 ```
@@ -68,6 +72,7 @@ go build -o whatsapp-transcriber cmd/bot/main.go
 | `GROQ_API_KEY` | Yes (or Cloudflare) | Your Groq API key for transcription | - |
 | `CF_ACCOUNT_ID` | Yes (if using Cloudflare) | Your Cloudflare Account ID | - |
 | `CF_API_KEY` | Yes (if using Cloudflare) | Your Cloudflare API key | - |
+| `DEEPGRAM_API_KEY` | Yes (if using Deepgram) | Your Deepgram API key | - |
 | `TRANSCRIPTION_LANGUAGE` | No | Language code for transcription | `pt` (Portuguese) |
 
 ### Supported Transcription Services
@@ -82,17 +87,25 @@ go build -o whatsapp-transcriber cmd/bot/main.go
 - **API URL**: `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{model}`
 - **Features**: Serverless, scalable, integrated with Cloudflare ecosystem
 
+#### Deepgram AI
+- **Model**: `nova-3`
+- **API URL**: `https://api.deepgram.com/v1/listen`
+- **Features**: High accuracy transcription with automatic language detection
+
 ### Exclusion List Management
 
 The bot maintains an exclusion list stored in `data/exclude.txt`. You can manage this list through:
 
 1. **Administrative Commands** (via WhatsApp):
    - `/backend <service>` - Switch transcription backend (groq|cloudflare|deepgram)
-   - `/backend` - Show backend switching usage
-   - `/exclude <number>` - Add a phone number to exclusion list
-   - `/exclude` - Show exclusion list status
-   - `/include <number>` - Remove a phone number from exclusion list
-   - `/include` - Show inclusion list status
+     Example: `/backend deepgram`
+   - `/backend` - Show available backends and current selection
+   - `/exclude <number>` - Add phone number to exclusion list (with country code)
+     Example: `/exclude 5511999999999`
+   - `/exclude` - Show current exclusion list count
+   - `/include <number>` - Remove phone number from exclusion list
+     Example: `/include 5511888888888`
+   - `/include` - Show numbers available for removal from exclusion list
 
 2. **Manual File Editing**: Edit `data/exclude.txt` directly (one number per line)
 
@@ -113,7 +126,7 @@ The bot maintains an exclusion list stored in `data/exclude.txt`. You can manage
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--log` | Enable logging to file | `false` |
-| `--backend` | Transcription backend to use (groq\|cloudflare) | - |
+| `--backend` | Transcription backend to use (groq\|cloudflare\|deepgram) | - |
 
 ### 2. Initial Authentication
 
@@ -153,7 +166,8 @@ whatsapp-transcriber-go/
 │   └── transcription/
 │       ├── transcription.go     # Core transcription logic
 │       ├── groq.go              # Groq API implementation
-│       └── cloudflare.go        # Cloudflare AI implementation
+│       ├── cloudflare.go        # Cloudflare AI implementation
+│       └── deepgram.go          # Deepgram AI implementation
 ├── data/
 │   └── exclude.txt              # Exclusion list file
 ├── logs/
@@ -179,6 +193,7 @@ graph TD
     G --> H{Transcription Service}
     H -->|Groq API| I[Groq Transcriber]
     H -->|Cloudflare AI| J[Cloudflare Transcriber]
+    H -->|Deepgram AI| K[Deepgram Transcriber]
     
     I --> K[Transcribed Text]
     J --> K
@@ -304,6 +319,7 @@ This project is licensed under the MIT License. See the LICENSE file for details
 - [Whatsmeow](https://github.com/tulir/whatsmeow) - WhatsApp library for Go
 - [Groq](https://groq.com/) - Fast AI inference
 - [Cloudflare AI](https://cloudflare.com/ai/) - Serverless AI services
+- [Deepgram](https://deepgram.com/) - Accurate speech recognition
 - [Zap Logger](https://go.uber.org/zap) - High-performance logging
 
 ## 📞 Support
