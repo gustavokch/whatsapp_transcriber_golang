@@ -288,7 +288,160 @@ func printQRCodeToTerminal(code string) error {
 	return nil
 }
 
+// extractMessageText extracts text content from different types of WhatsApp messages.
+// This helper function eliminates code duplication when handling various message types.
+func extractMessageText(message *waE2E.Message) string {
+	if message.GetConversation() != "" {
+		return message.GetConversation()
+	} else if message.GetExtendedTextMessage() != nil {
+		return message.GetExtendedTextMessage().GetText()
+	}
+	return ""
+}
+
+// handleAdminCommand processes administrative commands sent via WhatsApp.
+// Returns true if a command was handled, false otherwise.
+// Supported commands:
+// - /exclude <number> - Add a phone number to the exclusion list
+// - /exclude - Show the current exclusion list
+// - /include <number> - Remove a phone number from the exclusion list
+// - /include - Show usage information for the include command
+// - /backend <service> - Switch transcription backend (groq|cloudflare|deepgram)
+// - /backend - Show usage information for the backend command
+func handleAdminCommand(v *events.Message, text string) bool {
+	ctx := context.Background()
+
+	switch {
+	case text == "/exclude":
+		log.Info("Executing /exclude command - displaying exclusion list")
+		// Display currently excluded users
+		excluded := exclusionManager.GetAllExcluded()
+		var response string
+		if len(excluded) == 0 {
+			response = "📭 No users are currently excluded from transcription.\n\n" +
+				"Use /exclude <number> to add a phone number to the exclusion list."
+		} else {
+			response = fmt.Sprintf("📋 Currently excluded users (%d):\n", len(excluded))
+			for _, number := range excluded {
+				response += "• " + number + "\n"
+			}
+			response += "\nUse /include <number> to remove a user from this list."
+		}
+		cli.SendMessage(ctx, v.Info.Chat, &waE2E.Message{
+			Conversation: &response,
+		})
+		return true
+
+	case text == "/include":
+		log.Info("Executing /include command - showing usage")
+		// Show error for /include without number
+		response := "📝 Usage: /include <number>\n" +
+			"Example: /include 1234567890\n\n" +
+			"This command removes a phone number from the exclusion list, " +
+			"allowing that user's audio messages to be transcribed again."
+		cli.SendMessage(ctx, v.Info.Chat, &waE2E.Message{
+			Conversation: &response,
+		})
+		return true
+
+	case strings.HasPrefix(text, "/exclude "):
+		log.Info("Executing /exclude with number command")
+		numberToExclude := strings.TrimSpace(text[9:]) // 9 characters to skip "/exclude "
+		if numberToExclude == "" {
+			response := "❌ Error: Please provide a phone number to exclude.\n\n" +
+				"Usage: /exclude <number>\n" +
+				"Example: /exclude 1234567890"
+			cli.SendMessage(ctx, v.Info.Chat, &waE2E.Message{
+				Conversation: &response,
+			})
+			return true
+		}
+		exclusionManager.Add(numberToExclude)
+		response := fmt.Sprintf("✅ Success! %s has been added to the exclusion list.\n\n"+
+			"Audio messages from this number will no longer be transcribed.", numberToExclude)
+		cli.SendMessage(ctx, v.Info.Chat, &waE2E.Message{
+			Conversation: &response,
+		})
+		return true
+
+	case text == "/backend":
+		log.Info("Executing /backend command - showing usage")
+		response := "🔧 Transcription Backend Management\n\n" +
+			"Usage: /backend <service>\n" +
+			"Available services: groq, cloudflare, deepgram\n\n" +
+			"Example: /backend groq\n\n" +
+			"This command switches the transcription service used for processing audio messages."
+		cli.SendMessage(ctx, v.Info.Chat, &waE2E.Message{
+			Conversation: &response,
+		})
+		return true
+
+	case strings.HasPrefix(text, "/backend "):
+		backendName := strings.TrimSpace(text[9:]) // 9 characters to skip "/backend "
+		if backendName == "" {
+			response := "❌ Error: Please specify a backend service.\n\n" +
+				"Usage: /backend <service>\n" +
+				"Available services: groq, cloudflare, deepgram"
+			cli.SendMessage(ctx, v.Info.Chat, &waE2E.Message{
+				Conversation: &response,
+			})
+			return true
+		}
+
+		newTranscriber, err := createTranscriber(backendName)
+		if err != nil {
+			response := fmt.Sprintf("❌ Error switching backend: %v\n\n"+
+				"Please check your API credentials and try again.", err)
+			cli.SendMessage(ctx, v.Info.Chat, &waE2E.Message{
+				Conversation: &response,
+			})
+			return true
+		}
+
+		transcriberService = newTranscriber
+		response := fmt.Sprintf("✅ Success! Switched transcription backend to %s.\n\n"+
+			"New audio messages will be processed using this service.", backendName)
+		cli.SendMessage(ctx, v.Info.Chat, &waE2E.Message{
+			Conversation: &response,
+		})
+		log.Info("Transcription backend changed", zap.String("backend", backendName))
+		return true
+
+	case strings.HasPrefix(text, "/include "):
+		log.Info("Executing /include with number command")
+		numberToInclude := strings.TrimSpace(text[9:]) // 9 characters to skip "/include "
+		if numberToInclude == "" {
+			response := "❌ Error: Please provide a phone number to include.\n\n" +
+				"Usage: /include <number>\n" +
+				"Example: /include 1234567890"
+			cli.SendMessage(ctx, v.Info.Chat, &waE2E.Message{
+				Conversation: &response,
+			})
+			return true
+		}
+
+		if exclusionManager.IsExcluded(numberToInclude) {
+			exclusionManager.Remove(numberToInclude)
+			response := fmt.Sprintf("✅ Success! %s has been removed from the exclusion list.\n\n"+
+				"Audio messages from this number will now be transcribed again.", numberToInclude)
+			cli.SendMessage(ctx, v.Info.Chat, &waE2E.Message{
+				Conversation: &response,
+			})
+		} else {
+			response := fmt.Sprintf("ℹ️  Note: %s is not currently in the exclusion list.\n\n"+
+				"No changes were made.", numberToInclude)
+			cli.SendMessage(ctx, v.Info.Chat, &waE2E.Message{
+				Conversation: &response,
+			})
+		}
+		return true
+	}
+
+	return false
+}
+
 func eventHandler(evt interface{}) {
+
 	switch v := evt.(type) {
 	case *events.Connected:
 		log.Info("WhatsApp client connected!")
@@ -301,92 +454,13 @@ func eventHandler(evt interface{}) {
 			return
 		}
 
-		var text string
-		if v.Message.GetConversation() != "" {
-			text = v.Message.GetConversation()
-		} else if v.Message.GetExtendedTextMessage() != nil {
-			text = v.Message.GetExtendedTextMessage().GetText()
-		}
-
-		//log.Debug("Parsed text", zap.String("text", text))
+		// Extract text from different message types
+		text := extractMessageText(v.Message)
 
 		// Handle administrative commands
 		if text != "" {
-			if text == "/exclude" {
-				log.Info("Executing /exclude command")
-				// Display currently excluded users
-				excluded := exclusionManager.GetAllExcluded()
-				if len(excluded) == 0 {
-					response := "No users are currently excluded from transcription."
-					cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
-						Conversation: &response,
-					})
-				} else {
-					response := "Currently excluded users:\n"
-					for _, number := range excluded {
-						response += "- " + number + "\n"
-					}
-					cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
-						Conversation: &response,
-					})
-				}
-				return
-			} else if text == "/include" {
-				log.Info("Executing /include command")
-				// Show error for /include without number
-				response := "Usage: /include <number> - Remove a number from the exclusion list."
-				cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
-					Conversation: &response,
-				})
-				return
-			} else if strings.HasPrefix(text, "/exclude") {
-				log.Info("Executing /exclude with number command")
-				numberToExclude := strings.TrimSpace(text[8:])
-				exclusionManager.Add(numberToExclude)
-				response := fmt.Sprintf("%s added to exclusion list.", numberToExclude)
-				cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
-					Conversation: &response,
-				})
-				return
-			} else if text == "/backend" {
-				log.Info("Executing /backend command")
-				response := "Usage: /backend <service> - Available services: groq, cloudflare, deepgram"
-				cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
-					Conversation: &response,
-				})
-				return
-			} else if strings.HasPrefix(text, "/backend ") {
-				backendName := strings.TrimSpace(text[8:])
-				newTranscriber, err := createTranscriber(backendName)
-				if err != nil {
-					response := fmt.Sprintf("Error switching backend: %v", err)
-					cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
-						Conversation: &response,
-					})
-				} else {
-					transcriberService = newTranscriber
-					response := fmt.Sprintf("Switched transcription backend to %s", backendName)
-					cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
-						Conversation: &response,
-					})
-					log.Info("Transcription backend changed", zap.String("backend", backendName))
-				}
-				return
-			} else if strings.HasPrefix(text, "/include") {
-				log.Info("Executing /include with number command")
-				numberToInclude := strings.TrimSpace(text[8:])
-				if exclusionManager.IsExcluded(numberToInclude) {
-					exclusionManager.Remove(numberToInclude)
-					response := fmt.Sprintf("%s removed from exclusion list.", numberToInclude)
-					cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
-						Conversation: &response,
-					})
-				} else {
-					response := fmt.Sprintf("%s not in exclusion list.", numberToInclude)
-					cli.SendMessage(context.Background(), v.Info.Chat, &waE2E.Message{
-						Conversation: &response,
-					})
-				}
+			handled := handleAdminCommand(v, text)
+			if handled {
 				return
 			}
 		}
